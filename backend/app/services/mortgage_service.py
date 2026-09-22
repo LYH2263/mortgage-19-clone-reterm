@@ -23,3 +23,30 @@ class MortgageService:
     def dashboard(self):
         items = loans.list_all(self._c)
         return {"loan_count": len(items), "clean": len([x for x in items if "种子" not in x["name"]]), "dirty": len([x for x in items if "种子" in x["name"]])}
+    def clone_term(self, loan_id, new_months, persist=False, keep_clone=False):
+        src = loans.get(self._c, loan_id)
+        if not src: return None
+        if int(new_months) == src["months"]: raise ValueError("same_months")
+        src_calc = equal_payment_schedule(src["principal"], src["annual_rate"], src["months"])
+        cln_calc = equal_payment_schedule(src["principal"], src["annual_rate"], new_months)
+        source_side = {"loan_id": src["id"], "name": src["name"], "principal": src["principal"], "annual_rate": src["annual_rate"],
+            "months": src["months"], "monthly_payment": src_calc["monthly_payment"], "total_interest": src_calc["total_interest"]}
+        clone_side = {"loan_id": None, "kept": False, "name": f'{src["name"]}·换期{new_months}期', "principal": src["principal"],
+            "annual_rate": src["annual_rate"], "months": new_months,
+            "monthly_payment": cln_calc["monthly_payment"], "total_interest": cln_calc["total_interest"]}
+        diff = round(cln_calc["monthly_payment"] - src_calc["monthly_payment"], 2)
+        run_id = None
+        if persist:
+            try:
+                self._c.execute("BEGIN")
+                clone_side["loan_id"] = loans.insert(self._c, clone_side["name"], src["principal"], src["annual_rate"], new_months)
+                clone_side["kept"] = bool(keep_clone)
+                payload = {"source_loan_id": src["id"], "clone_loan_id": clone_side["loan_id"], "new_months": new_months, "keep_clone": bool(keep_clone)}
+                result = {"source": source_side, "clone": clone_side, "monthly_payment_diff": diff}
+                run_id = runs.insert(self._c, "term_clone", payload, result, src["id"], commit=False)
+                if not keep_clone: loans.delete(self._c, clone_side["loan_id"])
+                self._c.commit()
+            except Exception:
+                self._c.rollback()
+                raise
+        return {"run_id": run_id, "persisted": bool(persist), "source": source_side, "clone": clone_side, "monthly_payment_diff": diff}

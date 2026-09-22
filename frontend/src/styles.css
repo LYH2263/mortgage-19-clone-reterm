@@ -10,3 +10,4 @@ button { background:var(--accent); color:#fff; border:0; padding:0.35rem 0.75rem
 input { border:1px solid var(--grid); padding:0.3rem; }
 a { color: var(--accent); }
 .hero-num { font-size:1.8rem; font-weight:700; }
+.err { color:#a33; }
